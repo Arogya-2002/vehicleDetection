@@ -1,59 +1,72 @@
 import os
+import json
 import sys
 import pandas as pd
-from paddleocr import PaddleOCR
 from datetime import datetime
+from paddleocr import PaddleOCR
 from src.exceptions.exceptions import CustomException
 from src.loggs.logger import logging
 
 
 class BatchOcrProcessor:
-    def __init__(self, artifacts_root_dir: str, output_csv_path: str):
+    def __init__(self, artifacts_root_dir: str, output_csv_path: str, state_file: str = ".ocr_state.json"):
         self.artifacts_root_dir = artifacts_root_dir
         self.output_csv_path = output_csv_path
-        try:
-            self.ocr = PaddleOCR(use_angle_cls=True, lang='en')
-            logging.info("PaddleOCR model initialized successfully.")
-        except Exception as e:
-            raise CustomException(e, sys)
+        self.state_file = state_file
+        self.ocr = PaddleOCR(use_angle_cls=True, lang='en')
+        self.last_processed_folder = self._load_state()
 
-    def safe_ocr(self, image_path):
-        """
-        Safely run OCR on given image path.
-        Returns list of detected boxes or empty list if failed or no detection.
-        """
+    def _load_state(self) -> str:
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, "r") as f:
+                    return json.load(f).get("last_folder", "")
+            except Exception as e:
+                logging.warning(f"Failed to load OCR state file: {e}")
+        return ""
+
+    def _save_state(self, folder_name: str):
+        try:
+            with open(self.state_file, "w") as f:
+                json.dump({"last_folder": folder_name}, f)
+                logging.info(f"OCR state saved: last_folder={folder_name}")
+        except Exception as e:
+            logging.warning(f"Failed to save OCR state: {e}")
+
+    def _safe_ocr(self, image_path):
         try:
             result = self.ocr.ocr(image_path, cls=True)
-            if result and len(result) > 0 and result[0]:
-                logging.debug(f"OCR detected {len(result[0])} boxes in {image_path}")
-                return result[0]
-            else:
-                logging.warning(f"No OCR result for image: {image_path}")
-                return []
+            return result[0] if result and isinstance(result, list) and result[0] else []
         except Exception as e:
-            logging.error(f"OCR failed for image {image_path}: {e}")
+            logging.error(f"OCR failed for {image_path}: {e}")
             return []
 
     def process_all(self):
         try:
-            if not os.path.exists(self.artifacts_root_dir):
-                raise FileNotFoundError(f"Artifacts directory not found: {self.artifacts_root_dir}")
-
             records = []
-            logging.info(f"Starting OCR batch processing in directory: {self.artifacts_root_dir}")
+            logging.info(f"Starting OCR processing from: {self.artifacts_root_dir}")
 
-            for root, dirs, files in os.walk(self.artifacts_root_dir):
-                for file in files:
+            all_dirs = sorted([
+                os.path.join(self.artifacts_root_dir, d)
+                for d in os.listdir(self.artifacts_root_dir)
+                if os.path.isdir(os.path.join(self.artifacts_root_dir, d))
+            ])
+
+            for dir_path in all_dirs:
+                run_folder = os.path.basename(dir_path)
+
+                if self.last_processed_folder and run_folder <= self.last_processed_folder:
+                    continue
+
+                logging.info(f"Processing folder: {run_folder}")
+
+                for file in os.listdir(dir_path):
                     if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                        image_path = os.path.join(root, file)
-                        run_folder = os.path.relpath(root, self.artifacts_root_dir)
+                        image_path = os.path.join(dir_path, file)
+                        ocr_lines = self._safe_ocr(image_path)
 
-                        logging.info(f"Processing image: {image_path}")
-                        ocr_results = self.safe_ocr(image_path)
-
-                        for line in ocr_results:
-                            text = line[1][0]
-                            conf = line[1][1]
+                        for line in ocr_lines:
+                            text, conf = line[1]
                             records.append({
                                 "run_folder": run_folder,
                                 "image_file": file,
@@ -62,16 +75,24 @@ class BatchOcrProcessor:
                                 "processed_at": datetime.now().isoformat()
                             })
 
+                self._save_state(run_folder)
+
             if not records:
-                logging.warning("No text detected in any images. No CSV will be generated.")
+                logging.info("OCR processing complete. No new records to append.")
                 return
 
             os.makedirs(os.path.dirname(self.output_csv_path), exist_ok=True)
-            pd.DataFrame(records).to_csv(self.output_csv_path, index=False)
+            df_new = pd.DataFrame(records)
 
-            logging.info(f"OCR batch processing completed. Results saved to: {self.output_csv_path}")
+            if os.path.exists(self.output_csv_path):
+                df_new.to_csv(self.output_csv_path, mode='a', index=False, header=False)
+            else:
+                df_new.to_csv(self.output_csv_path, index=False)
+
+            logging.info(f"OCR processing complete. Results appended to: {self.output_csv_path}")
 
         except Exception as e:
+            logging.error(f"Error during OCR processing: {e}")
             raise CustomException(e, sys)
 
 

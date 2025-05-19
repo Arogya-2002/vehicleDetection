@@ -16,7 +16,7 @@ class TrainerConfig:
 
 class PlateDetectionConfig:
     def __init__(self, trainer_config: TrainerConfig):
-        self.image_path = os.path.join(trainer_config.data, 'numberplate1.webp')
+        self.image_path = os.path.join(trainer_config.data, 'numberplate.jpeg')
         self.model_file_path = os.path.join(trainer_config.model_path, trainer_config.model_name)
 
         # Generate unique run folder with date-time
