@@ -4,7 +4,7 @@ import pandas as pd
 from paddleocr import PaddleOCR
 from datetime import datetime
 from src.exceptions.exceptions import CustomException
-from src.logs.logger import logging
+from src.loggs.logger import logging
 
 
 class BatchOcrProcessor:

@@ -1,5 +1,5 @@
 from src.exceptions.exceptions import CustomException
-from src.logs.logger import logging
+from src.loggs.logger import logging
 from src.constants import *
 import os, sys
 from datetime import datetime

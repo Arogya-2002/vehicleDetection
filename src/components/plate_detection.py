@@ -1,7 +1,7 @@
 from src.exceptions.exceptions import CustomException
 from src.entity.config_entity import PlateDetectionConfig, TrainerConfig
 from src.entity.artifact_entity import PlateDetectionArtifact
-from src.logs.logger import logging
+from src.loggs.logger import logging
 import os, sys
 import cv2
 from ultralytics import YOLO
